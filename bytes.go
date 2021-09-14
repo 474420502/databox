@@ -3,14 +3,24 @@ package databox
 import (
 	"bytes"
 	"encoding/binary"
+	"io"
 )
 
 type Buffer struct {
-	bytes.Buffer
+	*bytes.Buffer
 }
 
-func NewBuffer() *Buffer {
-	return &Buffer{}
+func NewBuffer(buf []byte) *Buffer {
+	return &Buffer{bytes.NewBuffer(buf)}
+}
+
+func NewBufferFromReader(reader io.Reader) *Buffer {
+	buf := NewBuffer(nil)
+	_, err := buf.ReadFrom(reader)
+	if err != nil {
+		panic(err)
+	}
+	return buf
 }
 
 func (buf *Buffer) BinaryWrite(order binary.ByteOrder, data interface{}) error {

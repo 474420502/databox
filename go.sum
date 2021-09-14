@@ -13,6 +13,8 @@ github.com/474420502/requests v1.11.0/go.mod h1:SB8/RIUVWF3AGotuq/mATUwAjXzzlV7i
 github.com/474420502/structure v0.4.0/go.mod h1:HKEMq5GlwxZKAQl3LwbN+A+E+wL9NimrNVlu7FIku3Y=
 github.com/474420502/structure v0.4.3 h1:mJKkeXN9GZ1p6uDixD9YqUEem0qzXx2EBpzWKGzKsHo=
 github.com/474420502/structure v0.4.3/go.mod h1:HKEMq5GlwxZKAQl3LwbN+A+E+wL9NimrNVlu7FIku3Y=
+github.com/DataDog/zstd v1.4.8 h1:Rpmta4xZ/MgZnriKNd24iZMhGpP5dvUcs/uqfBapKZY=
+github.com/DataDog/zstd v1.4.8/go.mod h1:g4AWEaM3yOg3HYfnJ3YIawPnVdXJh9QME85blwSAmyw=
 github.com/antchfx/xpath v1.1.6 h1:6sVh6hB5T6phw1pFpHRQ+C4bd8sNI+O58flqtg7h0R0=
 github.com/antchfx/xpath v1.1.6/go.mod h1:Yee4kTMuNiPYJ7nSNorELQMr1J33uOpXDMByNYhvtNk=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

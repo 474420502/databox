@@ -1,6 +1,7 @@
 package databox
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -10,15 +11,20 @@ import (
 )
 
 type Wal struct {
-	code     uint32 // 文件编号
-	isLoaded bool   // 判断是否被加载
+	code uint32 // 文件编号
+
+	dir   string // 路径
+	label string // 文件标签 唯一
+
+	isLoaded bool // 判断是否被加载
+	isSync   bool
 
 	logfile   *os.File
 	logWriter WalWriter
 }
 
 type WalWriter interface {
-	io.WriteCloser
+	io.Writer
 	Flush() error
 }
 
@@ -27,10 +33,6 @@ func (wal *Wal) Wrtie(data []byte) error {
 	if err != nil {
 		return err
 	}
-	// err = wal.logWriter.Flush()
-	// if err != nil {
-	// 	return err
-	// }
 	return nil
 }
 
@@ -54,19 +56,41 @@ func NewBlock(code uint32, label, dir string) *Block {
 		panic(fmt.Sprintf("%s\n. 创建 %s 失败", err, wfilename))
 	}
 
-	w, err := zstd.NewWriter(f)
-	if err != nil {
-		panic(err)
-	}
-
+	w := bufio.NewWriter(f)
 	b.tlist = treelist.New()
 	b.wal = &Wal{
 		code:      code,
+		dir:       dir,
+		label:     label,
 		logfile:   f,
 		logWriter: w,
 	}
 
 	return b
+}
+
+func NewBlockSync(code uint32, label, dir string) *Block {
+	block := NewBlock(code, label, dir)
+	block.SetSync(true)
+	return block
+}
+
+func (db *Block) PutCover(key, value []byte) bool {
+	result := db.tlist.PutDuplicate(key, value, func(exists *treelist.Slice) {
+		exists.Value = value
+	})
+
+	err := db.wal.Wrtie(newOperateLog(OT_PUT, key, value).Encode())
+	if err != nil {
+		panic(err)
+	}
+	if db.wal.isSync {
+		err := db.wal.logWriter.Flush()
+		if err != nil {
+			panic(err)
+		}
+	}
+	return result
 }
 
 func (db *Block) Put(key, value []byte) bool {
@@ -75,6 +99,12 @@ func (db *Block) Put(key, value []byte) bool {
 		err := db.wal.Wrtie(newOperateLog(OT_PUT, key, value).Encode())
 		if err != nil {
 			panic(err)
+		}
+		if db.wal.isSync {
+			err := db.wal.logWriter.Flush()
+			if err != nil {
+				panic(err)
+			}
 		}
 	}
 	return result
@@ -106,21 +136,24 @@ func (db *Block) Code() uint32 {
 	return db.wal.code
 }
 
+func (db *Block) SetSync(is bool) {
+	db.wal.isSync = is
+}
+
 func (db *Block) Load() {
-	basefile := fmt.Sprintf("data.bas.%8d", db.wal.code)
+	basefile := fmt.Sprintf("%s%s.bas.%08d", db.wal.dir, db.wal.label, db.wal.code)
 	_, err := os.Stat(basefile)
-	if os.IsExist(err) {
+	if err == nil {
 		bf, err := os.OpenFile(basefile, os.O_RDWR, 0644)
 		if err != nil {
 			panic(err)
 		}
+
 		dec, err := zstd.NewReader(bf)
 		if err != nil {
 			panic(err)
 		}
-
 		var oplog *OperateLog = &OperateLog{}
-
 		for {
 			err = oplog.Decode(dec)
 			if err != nil {
@@ -130,43 +163,49 @@ func (db *Block) Load() {
 					panic(err)
 				}
 			}
-			db.tlist.Put(oplog.Key, oplog.Value)
+			db.tlist.PutDuplicate(oplog.Key, oplog.Value, func(exists *treelist.Slice) {
+				exists.Value = oplog.Value
+			})
 		}
 	}
 
-	walfile := fmt.Sprintf("data.wal.%d", db.wal.code)
+	walfile := fmt.Sprintf("%s%s.wal.%08d", db.wal.dir, db.wal.label, db.wal.code)
 	_, err = os.Stat(walfile)
-	if os.IsExist(err) {
-		wf, err := os.OpenFile(basefile, os.O_APPEND, 0644)
-		if err != nil {
-			panic(err)
-		}
-		dec, err := zstd.NewReader(wf)
-		if err != nil {
-			panic(err)
-		}
-		var oplog *OperateLog = &OperateLog{}
-		for {
-			err = oplog.Decode(dec)
-			if err != nil {
-				if err == io.EOF {
-					break
-				} else {
-					panic(err)
-				}
-			}
-
-			switch oplog.Type() {
-			case OT_PUT:
-				db.tlist.Put(oplog.Key, oplog.Value)
-			case OT_REMOVE:
-				db.tlist.Remove(oplog.Key)
-			case OT_REMOVE_RANGE:
-				db.tlist.RemoveRange(oplog.Key, oplog.Value)
-			}
-		}
-	} else {
+	if os.IsNotExist(err) {
 		panic(err)
+	}
+
+	wf, err := os.OpenFile(walfile, os.O_RDWR|os.O_APPEND, 0644)
+	if err != nil {
+		panic(err)
+	}
+
+	dec := bufio.NewReader(wf)
+	if err != nil {
+		panic(err)
+	}
+	var oplog *OperateLog = &OperateLog{}
+	for {
+
+		err = oplog.Decode(dec)
+		if err != nil {
+			if err == io.EOF {
+				break
+			} else {
+				panic(err)
+			}
+		}
+
+		switch oplog.Type() {
+		case OT_PUT:
+			db.tlist.PutDuplicate(oplog.Key, oplog.Value, func(exists *treelist.Slice) {
+				exists.Value = oplog.Value
+			})
+		case OT_REMOVE:
+			db.tlist.Remove(oplog.Key)
+		case OT_REMOVE_RANGE:
+			db.tlist.RemoveRange(oplog.Key, oplog.Value)
+		}
 	}
 
 	db.wal.isLoaded = true

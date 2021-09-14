@@ -54,6 +54,7 @@ func newOperateLogFromReader(reader io.Reader) (*OperateLog, error) {
 
 func (log *OperateLog) Decode(reader io.Reader) error {
 	var err error
+
 	err = binary.Read(reader, binary.BigEndian, &log.OperateHead)
 	if err != nil {
 		return err

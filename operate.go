@@ -3,98 +3,202 @@ package databox
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
+	"time"
 )
 
-type OperateType int8
+type OperateType uint8
 
 const (
-	OT_PUT          OperateType = 10
+	OT_Cover OperateType = 10
+
 	OT_REMOVE       OperateType = 20
 	OT_REMOVE_RANGE OperateType = 21
 )
 
 type OperateHead struct {
-	HeadSign  byte
-	OpType    OperateType
-	KeySize   uint32
-	ValueSize uint32
-	EndSign   byte
+	SignHead byte
+
+	TimeStamp int64
+
+	Type     OperateType
+	KeyLen   uint32
+	ValueLen uint32
+
+	SignTail byte
 }
 
-type OperateLog struct {
+type Operate struct {
 	OperateHead
-	Slice
+	key   []byte
+	value []byte
 }
 
-func newOperateLog(opType OperateType, key, value []byte) *OperateLog {
-	olog := &OperateLog{}
+func NewOperate(optype OperateType, Key, Value []byte) *Operate {
+	op := Operate{}
+	op.SignHead = '\x02'
+	op.SignTail = '\x01'
 
-	olog.HeadSign = '\x02'
-	olog.OpType = opType
-	olog.KeySize = uint32(len(key))
-	olog.ValueSize = uint32(len(value))
-	olog.EndSign = '\x01'
-	olog.Key = key
-	olog.Value = value
-
-	return olog
+	op.Type = optype
+	op.KeyLen = uint32(len(Key))
+	op.ValueLen = uint32(len(Value))
+	op.SetData(Key, Value)
+	return &op
 }
 
-func newOperateLogFromReader(reader io.Reader) (*OperateLog, error) {
-	olog := &OperateLog{}
+func (op *Operate) Key() []byte {
+	return op.key
+}
 
-	err := olog.Decode(reader)
+func (op *Operate) Value() []byte {
+	return op.value
+}
+
+func (op *Operate) SetKey(key []byte) {
+	if cap(op.key) >= len(key) {
+		op.key = op.key[0:len(key)]
+	} else {
+		op.key = make([]byte, len(key))
+	}
+	copy(op.key, key)
+	op.KeyLen = uint32(len(op.key))
+}
+
+func (op *Operate) SetValue(value []byte) {
+	if cap(op.value) >= len(value) {
+		op.value = op.value[0:len(value)]
+	} else {
+		op.value = make([]byte, len(value))
+	}
+	copy(op.value, value)
+	op.ValueLen = uint32(len(value))
+}
+
+func (op *Operate) SetData(key, value []byte) {
+	op.SetKey(key)
+	op.SetValue(value)
+}
+
+func (op *Operate) Encode(writer io.Writer) error {
+	var buf bytes.Buffer
+
+	op.OperateHead.TimeStamp = time.Now().UnixNano()
+
+	err := binary.Write(&buf, binary.BigEndian, op.OperateHead)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
 
-	return olog, nil
-}
+	err = binary.Write(&buf, binary.BigEndian, op.key)
+	if err != nil {
+		panic(err)
+	}
 
-func (log *OperateLog) Decode(reader io.Reader) error {
-	var err error
+	err = binary.Write(&buf, binary.BigEndian, op.value)
+	if err != nil {
+		panic(err)
+	}
 
-	err = binary.Read(reader, binary.BigEndian, &log.OperateHead)
+	_, err = buf.WriteTo(writer)
 	if err != nil {
 		return err
 	}
-
-	if log.OperateHead.HeadSign == '\x02' && log.OperateHead.EndSign == '\x01' {
-		kvsize := log.OperateHead.KeySize + log.OperateHead.ValueSize
-		var kvbuf []byte = make([]byte, kvsize)
-		err = binary.Read(reader, binary.BigEndian, kvbuf)
-		if err != nil {
-			panic(err)
-		}
-		log.Key = kvbuf[0:log.OperateHead.KeySize]
-		log.Value = kvbuf[log.OperateHead.KeySize:]
-	} else {
-		panic("数据格式错误")
-	}
-
 	return nil
 }
 
-func (log *OperateLog) Encode() []byte {
+func (op *Operate) EncodeBytes() []byte {
 	var buf bytes.Buffer
-	var err error
 
-	err = binary.Write(&buf, binary.BigEndian, log.OperateHead)
+	op.OperateHead.TimeStamp = time.Now().UnixNano()
+
+	err := binary.Write(&buf, binary.BigEndian, op.OperateHead)
 	if err != nil {
 		panic(err)
 	}
-	err = binary.Write(&buf, binary.BigEndian, log.Key)
+
+	err = binary.Write(&buf, binary.BigEndian, op.key)
 	if err != nil {
 		panic(err)
 	}
-	err = binary.Write(&buf, binary.BigEndian, log.Value)
+
+	err = binary.Write(&buf, binary.BigEndian, op.value)
 	if err != nil {
 		panic(err)
 	}
 	return buf.Bytes()
 }
 
-func (log *OperateLog) Type() OperateType {
-	return log.OpType
+func (op *Operate) Decode(reader io.Reader) error {
+	var err error
+
+	err = binary.Read(reader, binary.BigEndian, &op.OperateHead)
+	if err != nil {
+		return err
+	}
+
+	if op.SignHead != '\x02' || op.SignTail != '\x01' {
+		return fmt.Errorf("数据格式错误 %v", op.OperateHead)
+
+	}
+
+	if cap(op.key) >= int(op.KeyLen) {
+		op.key = op.key[0:op.KeyLen]
+	} else {
+		op.key = make([]byte, op.KeyLen)
+	}
+	err = binary.Read(reader, binary.BigEndian, &op.key)
+	if err != nil {
+		return err
+	}
+
+	if cap(op.value) >= int(op.ValueLen) {
+		op.value = op.value[0:op.ValueLen]
+	} else {
+		op.value = make([]byte, op.ValueLen)
+	}
+	err = binary.Read(reader, binary.BigEndian, &op.value)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (op *Operate) DecodeBytes(data []byte) error {
+	var err error
+
+	reader := bytes.NewBuffer(data)
+
+	err = binary.Read(reader, binary.BigEndian, &op.OperateHead)
+	if err != nil {
+		return err
+	}
+
+	if op.SignHead != '\x02' || op.SignTail != '\x01' {
+		return fmt.Errorf("数据格式错误 %v", op.OperateHead)
+
+	}
+
+	if cap(op.key) >= int(op.KeyLen) {
+		op.key = op.key[0:op.KeyLen]
+	} else {
+		op.key = make([]byte, op.KeyLen)
+	}
+	err = binary.Read(reader, binary.BigEndian, op.key)
+	if err != nil {
+		return err
+	}
+
+	if cap(op.value) >= int(op.ValueLen) {
+		op.value = op.value[0:op.ValueLen]
+	} else {
+		op.value = make([]byte, op.ValueLen)
+	}
+	err = binary.Read(reader, binary.BigEndian, op.value)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

@@ -1,12 +1,7 @@
 package databox
 
 import (
-	"encoding/binary"
-	"log"
-	"os"
 	"testing"
-
-	"github.com/klauspost/compress/zstd"
 )
 
 func TestZstdWrite(t *testing.T) {
@@ -43,23 +38,23 @@ func TestZstdWrite(t *testing.T) {
 
 func TestZstdRead(t *testing.T) {
 
-	fpath := "wal.data/test.wal.dat"
-	f, err := os.OpenFile(fpath, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0644)
-	if err != nil {
-		panic(err)
-	}
+	// fpath := "wal.data/test.wal.dat"
+	// f, err := os.OpenFile(fpath, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0644)
+	// if err != nil {
+	// 	panic(err)
+	// }
 
-	reader, err := zstd.NewReader(f)
-	if err != nil {
-		panic(err)
-	}
+	// reader, err := zstd.NewReader(f)
+	// if err != nil {
+	// 	panic(err)
+	// }
 
-	for {
+	// for {
 
-		var buf = NewBufferFromReader(reader)
-		var l OperateLog
-		buf.BinaryMustRead(binary.BigEndian, l)
-		log.Println(l)
-	}
+	// 	var buf = NewBufferFromReader(reader)
+	// 	var l OperateLog
+	// 	buf.BinaryMustRead(binary.BigEndian, l)
+	// 	log.Println(l)
+	// }
 
 }
